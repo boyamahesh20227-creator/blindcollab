@@ -4,20 +4,17 @@ import { useSocket } from './hooks/useSocket';
 
 import HomeScreen from './screens/HomeScreen';
 import LobbyScreen from './screens/LobbyScreen';
-import RoleScreen from './screens/RoleScreen';
+import WordSelectScreen from './screens/WordSelectScreen';
 import DrawingScreen from './screens/DrawingScreen';
+import GuessWatchScreen from './screens/GuessWatchScreen';
 import RevealScreen from './screens/RevealScreen';
-import GuessScreen from './screens/GuessScreen';
-import VoteScreen from './screens/VoteScreen';
 import ResultsScreen from './screens/ResultsScreen';
 
 export default function App() {
   const { state, actions } = useGameState();
   const isHostRef = useRef(false);
-  // Ref keeps the pending playerName accessible inside socket handler closures
   const pendingPlayerName = useRef('');
 
-  // Extract join code from URL (e.g. /join/ABC123)
   const urlJoinCode = (() => {
     const m = window.location.pathname.match(/^\/join\/([A-Z0-9]{4,8})$/i);
     return m ? m[1].toUpperCase() : '';
@@ -27,51 +24,67 @@ export default function App() {
     onConnect: () => actions.setConnected(true),
     onDisconnect: () => actions.setConnected(false),
     onError: (msg) => actions.setError(msg),
-
     'error': ({ message }) => actions.setError(message),
 
     'room:created': ({ roomCode }) => {
       isHostRef.current = true;
-      actions.joinLobby({ roomCode, playerName: pendingPlayerName.current, isHost: true });
+      actions.joinLobby({ roomCode, playerName: pendingPlayerName.current, isHost: true, screen: 'lobby', phase: 'lobby' });
     },
-
     'room:joined': ({ roomCode }) => {
-      actions.joinLobby({ roomCode, playerName: pendingPlayerName.current, isHost: false });
+      actions.joinLobby({ roomCode, playerName: pendingPlayerName.current, isHost: false, screen: 'lobby', phase: 'lobby' });
     },
-
     'room:updated': ({ players, isHost, roomCode }) => {
       actions.updatePlayers({ players, isHost: isHost ?? isHostRef.current, roomCode });
     },
 
-    'game:role': (data) => {
-      actions.setRole(data);
-    },
-
-    'countdown:tick': ({ count }) => {
-      actions.setCountdown(count);
+    // Role assignment — includes sentence (for drawers) or just role (for guesser)
+    'game:assigned': (data) => {
+      actions.gameAssigned({
+        role: data.role,
+        sentence: data.sentence ?? null,
+        words: data.words ?? [],
+        totalWords: data.totalWords,
+        guesserName: data.guesserName,
+        round: data.round,
+        maxRounds: data.maxRounds,
+      });
     },
 
     'game:phaseChange': (data) => {
       actions.setPhase(data);
     },
 
-    'reveal:layer': (layer) => {
-      actions.addLayer(layer);
+    'word:claimed': ({ claimedWords }) => {
+      actions.wordClaimed({ claimedWords });
     },
 
-    'guess:incoming': ({ guess, playerName }) => {
-      actions.addGuess({ guess, playerName, isCorrect: false });
+    // Server auto-assigned a word (timeout fallback)
+    'word:autoAssigned': (data) => {
+      actions.wordAssigned(data);
     },
 
-    'guess:correct': (data) => {
-      actions.setCorrectGuess(data);
-      actions.addGuess({ guess: data.word, playerName: data.playerName, isCorrect: true });
+    // Server confirms which word this drawer got
+    'drawing:wordAssigned': (data) => {
+      actions.wordAssigned(data);
     },
 
-    'guess:timeUp': () => {},
+    // Live canvas update for guesser
+    'canvas:live': (data) => {
+      actions.canvasLive(data);
+    },
 
-    'vote:results': (data) => {
-      actions.setVoteResults(data);
+    'drawing:progress': (data) => {
+      actions.drawingProgress(data);
+    },
+
+    // Guesser gets feedback on their guess
+    'sentence:guessed': (data) => {
+      actions.addGuess(data);
+    },
+
+    // Reveal all drawings + sentence
+    'game:reveal': (data) => {
+      actions.setReveal(data);
     },
 
     'score:update': (data) => {
@@ -83,7 +96,7 @@ export default function App() {
     },
 
     'player:disconnected': ({ playerName }) => {
-      console.log(`${playerName} disconnected`);
+      console.log(`${playerName} left`);
     },
   };
 
@@ -103,46 +116,15 @@ export default function App() {
     emit('room:join', { roomCode, playerName });
   };
 
-  const handleReady = () => {
-    emit('player:ready', { roomCode: state.roomCode });
+  const handleCanvasUpdate = (imageBase64) => {
+    emit('canvas:update', { roomCode: state.roomCode, imageBase64 });
   };
 
-  const handleStart = () => {
-    emit('game:start', { roomCode: state.roomCode });
-  };
+  const { phase, role } = state;
 
-  const handleDrawingSubmit = (imageBase64) => {
-    emit('drawing:submit', { roomCode: state.roomCode, imageBase64 });
-  };
-
-  const handleGuessSubmit = (guess) => {
-    emit('guess:submit', { roomCode: state.roomCode, guess });
-  };
-
-  const handleVote = (helpfulPlayer, chaoticPlayer) => {
-    emit('vote:submit', { roomCode: state.roomCode, helpfulPlayer, chaoticPlayer });
-  };
-
-  const handleNextRound = () => {
-    emit('game:nextRound', { roomCode: state.roomCode });
-  };
-
-  const handlePlayAgain = () => {
-    actions.reset();
-  };
-
-  const { phase, screen } = state;
-
-  // Screen routing
-  if (!state.roomCode || screen === 'home') {
-    return (
-      <HomeScreen
-        onCreateRoom={handleCreateRoom}
-        onJoinRoom={handleJoinRoom}
-        error={state.error}
-        prefilledCode={urlJoinCode}
-      />
-    );
+  // ── Lobby ──────────────────────────────────────────────────────────────────
+  if (!state.roomCode) {
+    return <HomeScreen onCreateRoom={handleCreateRoom} onJoinRoom={handleJoinRoom} error={state.error} prefilledCode={urlJoinCode} />;
   }
 
   if (phase === 'lobby') {
@@ -152,83 +134,96 @@ export default function App() {
         players={state.players}
         isHost={state.isHost}
         playerName={state.playerName}
-        onReady={handleReady}
-        onStart={handleStart}
+        onReady={() => emit('player:ready', { roomCode: state.roomCode })}
+        onStart={() => emit('game:start', { roomCode: state.roomCode })}
         error={state.error}
       />
     );
   }
 
-  if (phase === 'countdown' || phase === 'role') {
+  // ── Role reveal / countdown ────────────────────────────────────────────────
+  if (phase === 'roleReveal') {
     return (
-      <RoleScreen
-        role={state.role}
-        word={state.word}
-        countdown={state.countdown}
-        round={state.round}
-        maxRounds={state.maxRounds}
+      <div className="min-h-screen bg-game-bg flex flex-col items-center justify-center p-6 font-body text-center">
+        <p className="text-gray-400 text-sm font-mono mb-3">round {state.round} of {state.maxRounds}</p>
+        <div className={`px-6 py-3 rounded-2xl font-mono text-3xl font-bold mb-4 ${role === 'guesser' ? 'bg-game-accent/20 text-game-accent border-2 border-game-accent/40' : 'bg-blue-500/20 text-blue-300 border-2 border-blue-500/40'}`}>
+          {role === 'guesser' ? '👁️ you guess!' : '✏️ you draw!'}
+        </div>
+        <p className="text-gray-400 text-sm">
+          {role === 'guesser'
+            ? `Watch the drawings and guess the sentence`
+            : `You'll draw one word — ${state.guesserName} will guess the sentence`}
+        </p>
+        <div className="mt-8 flex gap-1">
+          {[0,1,2].map(i => <div key={i} className="w-2 h-2 rounded-full bg-game-accent animate-pulse" style={{ animationDelay: `${i * 0.2}s` }} />)}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Word selection ─────────────────────────────────────────────────────────
+  if (phase === 'wordSelect') {
+    return (
+      <WordSelectScreen
+        role={role}
+        sentence={state.sentence}
+        words={state.words}
+        guesserName={state.guesserName}
+        claimedWords={state.claimedWords}
+        onClaim={(wordIndex) => emit('word:claim', { roomCode: state.roomCode, wordIndex })}
+        phaseEndTime={state.phaseEndTime}
+        phaseDuration={state.phaseDuration}
+        myName={state.playerName}
       />
     );
   }
 
+  // ── Drawing phase ──────────────────────────────────────────────────────────
   if (phase === 'drawing') {
+    if (role === 'guesser') {
+      return (
+        <GuessWatchScreen
+          liveCanvases={state.liveCanvases}
+          totalWords={state.totalWords}
+          guesses={state.guesses}
+          drawingProgress={state.drawingProgress}
+          phaseEndTime={state.phaseEndTime}
+          phaseDuration={state.phaseDuration}
+          onSubmitGuess={(guess) => emit('sentence:guess', { roomCode: state.roomCode, guess })}
+        />
+      );
+    }
     return (
       <DrawingScreen
-        role={state.role}
-        word={state.word}
+        assignedWord={state.assignedWord}
+        assignedWordIndex={state.assignedWordIndex}
+        totalWords={state.totalWords}
         phaseEndTime={state.phaseEndTime}
         phaseDuration={state.phaseDuration}
-        onSubmit={handleDrawingSubmit}
+        onSubmit={(base64) => emit('drawing:submit', { roomCode: state.roomCode, imageBase64: base64 })}
+        onCanvasUpdate={handleCanvasUpdate}
       />
     );
   }
 
+  // ── Reveal ─────────────────────────────────────────────────────────────────
   if (phase === 'reveal') {
-    return (
-      <RevealScreen
-        layers={state.layers}
-        word={state.word}
-      />
-    );
+    return <RevealScreen revealData={state.revealData} />;
   }
 
-  if (phase === 'guessing') {
-    return (
-      <GuessScreen
-        layers={state.layers}
-        guesses={state.guesses}
-        correctGuess={state.correctGuess}
-        phaseEndTime={state.phaseEndTime}
-        phaseDuration={state.phaseDuration}
-        onSubmitGuess={handleGuessSubmit}
-        playerName={state.playerName}
-      />
-    );
-  }
-
-  if (phase === 'voting') {
-    return (
-      <VoteScreen
-        votePlayers={state.votePlayers ?? state.players}
-        playerName={state.playerName}
-        onVote={handleVote}
-      />
-    );
-  }
-
+  // ── Scores / Game over ─────────────────────────────────────────────────────
   if (phase === 'scores' || phase === 'ended') {
     return (
       <ResultsScreen
         scores={state.scores}
-        voteResults={state.voteResults}
         winner={state.winner}
         finalScores={state.finalScores}
         round={state.round}
         maxRounds={state.maxRounds}
         isHost={state.isHost}
         isGameOver={phase === 'ended'}
-        onNextRound={handleNextRound}
-        onPlayAgain={handlePlayAgain}
+        onNextRound={() => emit('game:nextRound', { roomCode: state.roomCode })}
+        onPlayAgain={() => actions.reset()}
         playerName={state.playerName}
       />
     );

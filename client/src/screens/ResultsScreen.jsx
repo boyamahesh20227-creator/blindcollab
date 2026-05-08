@@ -1,26 +1,14 @@
 import ScoreBoard from '../components/ScoreBoard';
 
-// showAds: false — wire to Google AdSense later by flipping this flag
 const showAds = false;
 
-export default function ResultsScreen({
-  scores,
-  voteResults,
-  winner,
-  finalScores,
-  round,
-  maxRounds,
-  isHost,
-  isGameOver,
-  onNextRound,
-  onPlayAgain,
-  playerName,
-}) {
-  const displayScores = isGameOver ? finalScores : scores;
+export default function ResultsScreen({ scores, winner, finalScores, round, maxRounds, isHost, isGameOver, onNextRound, onPlayAgain, playerName }) {
+  const display = isGameOver ? finalScores : scores;
+  const nextGuesserIdx = round % (scores.length || 1);
+  const nextGuesser = scores[nextGuesserIdx]?.name;
 
   return (
     <div className="min-h-screen bg-game-bg flex flex-col p-4 font-body max-w-md mx-auto">
-      {/* Header */}
       <div className="text-center py-6">
         {isGameOver ? (
           <>
@@ -37,79 +25,47 @@ export default function ResultsScreen({
         ) : (
           <>
             <h2 className="font-mono text-white text-2xl font-bold">round {round} done!</h2>
-            <p className="text-gray-400 text-sm mt-1 font-mono">{maxRounds - round} round{maxRounds - round !== 1 ? 's' : ''} left</p>
+            {!isGameOver && nextGuesser && (
+              <p className="text-gray-400 text-sm mt-2 font-mono">
+                next round: <span className="text-game-accent font-bold">{nextGuesser === playerName ? 'YOU' : nextGuesser}</span> guesses
+              </p>
+            )}
+            <p className="text-gray-600 text-xs mt-1 font-mono">{maxRounds - round} round{maxRounds - round !== 1 ? 's' : ''} left</p>
           </>
         )}
       </div>
 
-      {/* Vote results */}
-      {voteResults && (
-        <div className="mb-4 p-4 rounded-2xl bg-game-card border border-game-border">
-          <h3 className="font-mono text-sm text-gray-400 mb-3">vote results</h3>
-          <div className="flex gap-4">
-            <div className="flex-1 text-center">
-              <div className="text-game-success text-xs font-mono mb-1">most helpful</div>
-              <div className="font-body font-semibold text-white">{voteResults.helpful ?? '—'}</div>
-              <div className="text-xs text-game-success font-mono">+10 pts</div>
-            </div>
-            <div className="w-px bg-game-border" />
-            <div className="flex-1 text-center">
-              <div className="text-game-warning text-xs font-mono mb-1">most chaotic</div>
-              <div className="font-body font-semibold text-white">{voteResults.chaotic ?? '—'}</div>
-              <div className="text-xs text-game-warning font-mono">+5 pts</div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Scoreboard */}
       <div className="mb-6">
-        <h3 className="font-mono text-gray-400 text-sm mb-3">
-          {isGameOver ? 'final standings' : 'current standings'}
-        </h3>
-        <ScoreBoard scores={displayScores} highlight={winner?.name} />
+        <h3 className="font-mono text-gray-400 text-sm mb-3">{isGameOver ? 'final standings' : 'standings'}</h3>
+        <ScoreBoard scores={display} highlight={winner?.name} />
       </div>
 
-      {/* Ad slot (future) */}
       {showAds && (
         <div className="mb-4 h-16 rounded-xl bg-game-card border border-game-border flex items-center justify-center">
           <span className="text-gray-600 text-xs font-mono">ad slot</span>
         </div>
       )}
 
-      {/* Actions */}
       <div className="flex flex-col gap-3 pb-safe">
         {isGameOver ? (
           <>
-            <button
-              onClick={onPlayAgain}
-              className="w-full py-4 rounded-2xl bg-game-accent text-black font-mono font-bold text-lg hover:opacity-90 active:scale-95 transition-all"
-            >
+            <button onClick={onPlayAgain} className="w-full py-4 rounded-2xl bg-game-accent text-black font-mono font-bold text-lg hover:opacity-90 active:scale-95 transition-all">
               play again →
             </button>
             <button
-              onClick={() => {
-                if (navigator.share) {
-                  navigator.share({ title: 'Blind Collab', text: `I played Blind Collab! My score: ${displayScores.find(s => s.name === playerName)?.score ?? 0} pts`, url: window.location.origin });
-                } else {
-                  navigator.clipboard.writeText(window.location.origin);
-                }
-              }}
+              onClick={() => navigator.share?.({ title: 'Blind Collab', url: window.location.origin }) || navigator.clipboard.writeText(window.location.origin)}
               className="w-full py-3 rounded-2xl bg-game-card border border-game-border text-white font-mono hover:border-game-accent transition-all active:scale-95"
             >
-              share result
+              share with friends
             </button>
           </>
         ) : isHost ? (
-          <button
-            onClick={onNextRound}
-            className="w-full py-4 rounded-2xl bg-game-accent text-black font-mono font-bold text-lg hover:opacity-90 active:scale-95 transition-all"
-          >
+          <button onClick={onNextRound} className="w-full py-4 rounded-2xl bg-game-accent text-black font-mono font-bold text-lg hover:opacity-90 active:scale-95 transition-all">
             next round →
           </button>
         ) : (
           <div className="text-center py-3">
-            <p className="text-gray-500 font-mono text-sm">waiting for host to continue...</p>
+            <p className="text-gray-500 font-mono text-sm">waiting for host to continue…</p>
           </div>
         )}
       </div>
