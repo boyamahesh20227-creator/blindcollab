@@ -1,0 +1,23 @@
+// React Native compatible: YES
+export const WORDS = [
+  'grandma skateboarding',
+  'dog giving a TED talk',
+  'cat filing taxes',
+  'penguin on a first date',
+  'astronaut cooking noodles',
+  'wizard stuck in traffic',
+  'ninja grocery shopping',
+  'robot learning to swim',
+  'pizza delivery in rain',
+  'Monday morning feeling',
+  'waiting for wifi to connect',
+  'charging phone at 1 percent',
+  'volcano having a picnic',
+  'fish going to school',
+  'clouds having an argument',
+  'cactus at a spa',
+  'winning an argument online',
+  'that 3am feeling',
+  'explaining memes to grandparents',
+  'buffering',
+];

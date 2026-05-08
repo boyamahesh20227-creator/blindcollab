@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: blindcollab-server
+    env: node
+    buildCommand: npm install
+    startCommand: node index.js
+    plan: free
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: NODE_ENV
+        value: production
+      - key: CLIENT_URL
+        value: https://blindcollab.vercel.app
